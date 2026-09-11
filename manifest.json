@@ -1,0 +1,9 @@
+{
+  "id": "movie-library",
+  "name": "Movie Library",
+  "version": "1.0.0",
+  "minAppVersion": "1.5.0",
+  "description": "A Markdown-first, dashboard-first movie and series library.",
+  "author": "Red-Beard",
+  "isDesktopOnly": false
+}
