@@ -4,3 +4,7 @@ main.js
 data.json
 .obsidian/
 *.tmp
+scripts/correct-series-classification.ps1
+scripts/enrich-migrated-movies-omdb.ps1
+scripts/migrate-legacy-movies.ps1
+scripts/refresh-missing-posters.ps1
