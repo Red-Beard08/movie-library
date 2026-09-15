@@ -1,4 +1,5 @@
 import { App, ItemView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, WorkspaceLeaf, normalizePath, requestUrl } from "obsidian";
+import { registerDashboardModule, registerDashboardWidget } from "./dashboard-bridge";
 
 type MediaType = "movie" | "series";
 type FamilyDecision = "approved" | "use-discernment" | "not-for-us" | "not-reviewed";
@@ -154,3 +155,23 @@ export default class MovieLibraryPlugin extends Plugin {
   plexPoster(record: MediaRecord): string { if (record.posterUrl) return record.posterUrl; if (!record.plexThumbPath || !this.settings.plexServerUrl || !this.settings.plexToken) return ""; return `${this.settings.plexServerUrl.replace(/\/+$/, "")}${record.plexThumbPath}${record.plexThumbPath.includes("?") ? "&" : "?"}X-Plex-Token=${encodeURIComponent(this.settings.plexToken)}`; }
   renderCard(parent: HTMLElement, record: MediaRecord, close?: () => void): void { const card = parent.createDiv({ cls: "movie-library-card" }); const poster = this.plexPoster(record); if (poster) { const image = card.createEl("img", { attr: { src: poster, alt: `${record.title} poster`, loading: "lazy" }, cls: "movie-library-poster" }); image.onerror = () => { image.remove(); card.createDiv({ cls: "movie-library-poster-placeholder", text: "No artwork" }); }; } else card.createDiv({ cls: "movie-library-poster-placeholder", text: "No artwork" }); const body = card.createDiv({ cls: "movie-library-card-body" }); body.createEl("strong", { text: record.title }); body.createEl("small", { text: `${record.year || "—"} · ${record.mediaType === "movie" ? "Movie" : "Series"}` }); const badges = body.createDiv({ cls: "movie-library-badges" }); if (record.watchlist && !record.watched) badges.createSpan({ text: "Watchlist", cls: "movie-library-badge" }); if (record.favorite) badges.createSpan({ text: "Favorite", cls: "movie-library-badge" }); if (record.owned) badges.createSpan({ text: "Owned", cls: "movie-library-badge" }); badges.createSpan({ text: FAMILY_DECISIONS[record.family.decision], cls: `movie-library-badge is-${record.family.decision}` }); if (record.personalRating) body.createEl("small", { text: `Your rating: ${record.personalRating}/10` }); const actions = body.createDiv({ cls: "movie-library-card-actions" }); const action = (label: string, run: () => Promise<void> | void): void => { const button = actions.createEl("button", { text: label }); button.onclick = () => void run(); }; action("Edit", () => new MediaModal(this.app, this, record).open()); action("Open", async () => { close?.(); await this.openFile(record.path); }); action(record.watched ? "Mark unwatched" : "Mark watched", async () => { await this.repository.update(record, { watched: !record.watched, lastWatched: record.watched ? "" : dateToday() }); await this.refreshDashboard(); }); action(record.watchlist ? "Remove list" : "Watchlist", async () => { await this.repository.update(record, { watchlist: !record.watchlist }); await this.refreshDashboard(); }); action(record.favorite ? "Unfavorite" : "Favorite", async () => { await this.repository.update(record, { favorite: !record.favorite }); await this.refreshDashboard(); }); action(record.owned ? "Unown" : "Owned", async () => { await this.repository.update(record, { owned: !record.owned }); await this.refreshDashboard(); }); action("Rate", () => new RatingModal(this.app, this, record).open()); if (record.imdbId) action("Guide", () => { window.open(`https://www.imdb.com/title/${encodeURIComponent(record.imdbId)}/parentalguide/`, "_blank"); }); }
 }
+// Red-Beard Dashboard integration: launcher module and independent summary widget.
+const rbDisposals = new WeakMap<object, () => void>();
+const rbOnload = MovieLibraryPlugin.prototype.onload;
+MovieLibraryPlugin.prototype.onload = async function(this: MovieLibraryPlugin) {
+  await rbOnload.call(this);
+  const disposals = [
+    registerDashboardModule(this.app, { id: "movie-library", name: "Movie Library", command: "movie-library:open-dashboard", icon: "film", description: "Watchlist, favorites, and family-guide overview.", order: 20 }),
+    registerDashboardWidget(this.app, { id: "movie-library/overview", name: "Movie Library", description: "Watchlist, favorites, and family-guide overview.", icon: "film", defaultLayout: { w: 4, mobileW: 12, h: 2, order: 40 }, mobile: "responsive", render: (_ctx, container) => {
+      container.createEl("p", { text: "Watchlist, favorites, and family-guide overview." });
+      const button = container.createEl("button", { text: "Open Movie Library" });
+      button.onclick = () => void this.openDashboard();
+    } })
+  ];
+  rbDisposals.set(this, () => disposals.forEach(dispose => dispose()));
+};
+const rbOnunload = MovieLibraryPlugin.prototype.onunload;
+MovieLibraryPlugin.prototype.onunload = function(this: MovieLibraryPlugin) {
+  rbDisposals.get(this)?.();
+ return rbOnunload ? rbOnunload.call(this) : undefined;
+};
